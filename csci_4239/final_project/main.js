@@ -4,6 +4,7 @@ function webGLStart()
 {
    var cubeTexture;
    //  See README for source
+   
    function initTextures() {
      cubeTexture = gl.createTexture();
      cubeImage = new Image();
@@ -59,6 +60,7 @@ function webGLStart()
    var ProjectionMatrix = new CanvasMatrix4();
    ProjectionMatrix.ortho(-2.5,+2.5,-2.5,+2.5,-2.5,+2.5);
    
+   /*
    //  Binds arrays set in sphere.js
    var sNormals = gl.createBuffer();
    gl.bindBuffer(gl.ARRAY_BUFFER,sNormals);
@@ -78,7 +80,7 @@ function webGLStart()
    
    var sElementBuffer = gl.createBuffer();
    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,sElementBuffer);
-   gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint16Array(indexData),gl.STATIC_DRAW);
+   gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint16Array(indexData),gl.STATIC_DRAW);*/
 
    //  Set state to draw scene
    gl.enable(gl.DEPTH_TEST);
@@ -95,6 +97,7 @@ function webGLStart()
    var startTime = new Date();
    
    initTextures();
+   init_ground(gl);
 
    //
    //  Display the scene
@@ -131,7 +134,7 @@ function webGLStart()
       gl.uniformMatrix4fv(gl.getUniformLocation(prog,"ModelviewMatrix")  , false , new Float32Array(ModelviewMatrix.getAsArray()));
       gl.uniformMatrix4fv(gl.getUniformLocation(prog,"NormalMatrix")     , false , new Float32Array(NormalMatrix.getAsArray()));
 //float Position[] = {(float)(3*Cos(zh)),z0,(float)(3*Sin(zh)),1.0};
-
+    /*
       //  Set up 3D vertex array
       gl.bindBuffer(gl.ARRAY_BUFFER,sVerts);
       var XYZ = gl.getAttribLocation(prog,"XYZ");
@@ -154,10 +157,10 @@ function webGLStart()
       gl.bindBuffer(gl.ARRAY_BUFFER,sTexCoord);
       var TEX = gl.getAttribLocation(prog,"TEX");
       gl.enableVertexAttribArray(TEX);
-      gl.vertexAttribPointer(TEX,2,gl.FLOAT,false,0,0);
+      gl.vertexAttribPointer(TEX,2,gl.FLOAT,false,0,0);*/
       
       //  Set up element array
-      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,sElementBuffer);
+      //gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,sElementBuffer);
   
       //  Set up light motion
       gl.uniform4f(gl.getUniformLocation(prog,"LightPos"), 3*Math.cos(phLight), hLight, 3*Math.sin(phLight), 1.0);
@@ -166,15 +169,15 @@ function webGLStart()
       gl.uniform4f(gl.getUniformLocation(prog,"specular"), 0.9,0.9,0.9,1.0);
       gl.uniform1f(gl.getUniformLocation(prog,"shininess"), 30.0);
       
-  
+      draw_ground(gl, prog);
       //  Draw all vertexes;
-      gl.drawElements(gl.TRIANGLES, indexData.length, gl.UNSIGNED_SHORT,0);
+      //gl.drawElements(gl.TRIANGLES, indexData.length, gl.UNSIGNED_SHORT,0);
 
       //  Disable vertex arrays
-      gl.disableVertexAttribArray(XYZ);
-      gl.disableVertexAttribArray(RGB);
-      gl.disableVertexAttribArray(NORM);
-      gl.disableVertexAttribArray(TEX);
+      //gl.disableVertexAttribArray(XYZ);
+      //gl.disableVertexAttribArray(RGB);
+      //gl.disableVertexAttribArray(NORM);
+      //gl.disableVertexAttribArray(TEX);
 
       //  Flush
       gl.flush ();
@@ -222,10 +225,12 @@ function webGLStart()
       x0 = ev.clientX;
       y0 = ev.clientY;
    }
-}
-
-//  Refresh the display
-function render() {
-   requestAnimationFrame(render);
-   Display();
+   
+   //  Refresh the display
+    function render() {
+       requestAnimationFrame(render);
+       Display();
+    }
+    
+    render();
 }
