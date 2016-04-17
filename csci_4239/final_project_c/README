@@ -1,0 +1,27 @@
+README:
+
+Final project
+CSCI 4229
+
+Key bindings:
+=============
+
+   arrow keys Move character
+   w/W        Speed up
+   q/Q        Slow down
+   spacebar   Reset map
+   m          Toggle between first-person mode and orbital mode (orbital mode is a bit glitchy)
+   ESC        Exit
+   
+Highlights:
+===========
+
+   Helicopter clips correctly with terrain - set it down anywhere and it'll rest nicely on top
+   Trees sway slightly, as if in the wind
+   Helicopter has lag time and momentum in it's movements and turns
+   The helicopter's side windows are transparent, as can be seen while turning
+   Helicopter clips with trees... with moderately high success rates
+
+Time taken:
+===========
+I've lost count ages ago.
