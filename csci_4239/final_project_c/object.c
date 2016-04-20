@@ -1,4 +1,4 @@
-#include "CSCIx229.h"
+#include "CSCIx239.h"
 #include <ctype.h>
 
 //  Load an OBJ file
@@ -20,10 +20,10 @@
 //  Material structure
 typedef struct
 {
-   char* name;                 //  Material name
-   float Ka[4],Kd[4],Ks[4],Ns; //  Colors and shininess
-   float d;                    //  Transparency
-   int map;                    //  Texture
+   char* name;                       //  Material name
+   float Ke[4],Ka[4],Kd[4],Ks[4],Ns; //  Colors and shininess
+   float d;                          //  Transparency
+   int map;                          //  Texture
 } mtl_t;
 
 //  Material count and array
@@ -48,6 +48,7 @@ static char* readline(FILE* f)
 {
    char ch;  //  Character read
    int k=0;  //  Character count
+   //  Read line
    while ((ch = fgetc(f)) != EOF)
    {
       //  Allocate more memory for long strings
@@ -61,15 +62,13 @@ static char* readline(FILE* f)
       if (CRLF(ch))
       {
          // Eat extra CR or LF characters (if any)
-         while ((ch = fgetc(f)) != EOF)
-           if (!CRLF(ch)) break;
-         //  Stick back the overrun
+         while ((ch = fgetc(f)) != EOF && CRLF(ch));
          if (ch != EOF) ungetc(ch,f);
          //  Bail
          break;
       }
-      //  Pad character to line
-      else
+      //  Pad character to line skipping leading whitespace
+      else if (k>0 || !isspace(ch))
          line[k++] = ch;
    }
    //  Terminate line if anything was read
@@ -191,6 +190,7 @@ static void LoadMaterial(const char* file)
          if (!mtl[k].name) Fatal("Cannot allocate %d for name\n",l+1);
          strcpy(mtl[k].name,str);
          //  Initialize materials
+         mtl[k].Ke[0] = mtl[k].Ke[1] = mtl[k].Ke[2] = 0;   mtl[k].Ke[3] = 1;
          mtl[k].Ka[0] = mtl[k].Ka[1] = mtl[k].Ka[2] = 0;   mtl[k].Ka[3] = 1;
          mtl[k].Kd[0] = mtl[k].Kd[1] = mtl[k].Kd[2] = 0;   mtl[k].Kd[3] = 1;
          mtl[k].Ks[0] = mtl[k].Ks[1] = mtl[k].Ks[2] = 0;   mtl[k].Ks[3] = 1;
@@ -201,6 +201,9 @@ static void LoadMaterial(const char* file)
       //  If no material short circuit here
       else if (k<0)
       {}
+      //  Emission color
+      else if (line[0]=='K' && line[1]=='e')
+         readfloat(line+2,3,mtl[k].Ke);
       //  Ambient color
       else if (line[0]=='K' && line[1]=='a')
          readfloat(line+2,3,mtl[k].Ka);
@@ -232,6 +235,7 @@ static void SetMaterial(const char* name)
       if (!strcmp(mtl[k].name,name))
       {
          //  Set material colors
+         glMaterialfv(GL_FRONT_AND_BACK,GL_EMISSION ,mtl[k].Ke);
          glMaterialfv(GL_FRONT_AND_BACK,GL_AMBIENT  ,mtl[k].Ka);
          glMaterialfv(GL_FRONT_AND_BACK,GL_DIFFUSE  ,mtl[k].Kd);
          glMaterialfv(GL_FRONT_AND_BACK,GL_SPECULAR ,mtl[k].Ks);
@@ -305,28 +309,28 @@ int LoadOBJ(const char* file)
             //  Try Vertex/Texture/Normal triplet
             if (sscanf(str,"%d/%d/%d",&Kv,&Kt,&Kn)==3)
             {
-               if (Kv<0 || Kv>Nv/3) Fatal("Vertex %d out of range 1-%d\n",Kv,Nv/3);
-               if (Kn<0 || Kn>Nn/3) Fatal("Normal %d out of range 1-%d\n",Kn,Nn/3);
-               if (Kt<0 || Kt>Nt/2) Fatal("Texture %d out of range 1-%d\n",Kt,Nt/2);
             }
             //  Try Vertex//Normal pairs
-            else if (sscanf(str,"%d//%d",&Kv,&Kn)==2)
-            {
-               if (Kv<0 || Kv>Nv/3) Fatal("Vertex %d out of range 1-%d\n",Kv,Nv/3);
-               if (Kn<0 || Kn>Nn/3) Fatal("Normal %d out of range 1-%d\n",Kn,Nn/3);
+            else if (sscanf(str,"%d//%d",&Kv,&Kn)==2 || sscanf(str,"%d/%d",&Kv,&Kn)==2)
                Kt = 0;
-            }
             //  Try Vertex index
             else if (sscanf(str,"%d",&Kv)==1)
             {
-               if (Kv<0 || Kv>Nv/3) Fatal("Vertex %d out of range 1-%d\n",Kv,Nv/3);
                Kn = 0;
                Kt = 0;
             }
             //  This is an error
             else
                Fatal("Invalid facet %s\n",str);
-            //  Draw vectors
+            //  Check that vertex is in range
+            if (Kv<-Nv/3 || Kv>Nv/3) Fatal("Vertex %d out of range 1-%d\n",Kv,Nv/3);
+            if (Kn<-Nn/3 || Kn>Nn/3) Fatal("Normal %d out of range 1-%d\n",Kn,Nn/3);
+            if (Kt<-Nt/2 || Kt>Nt/2) Fatal("Texture %d out of range 1-%d\n",Kt,Nt/2);
+            //  Adjust "from end" references
+            if (Kv<0) Kv = Nv/3+Kv+1;
+            if (Kn<0) Kn = Nn/3+Kn+1;
+            if (Kt<0) Kt = Nt/2+Kt+1;
+            //  Draw vertex
             if (Kt) glTexCoord2fv(T+2*(Kt-1));
             if (Kn) glNormal3fv(N+3*(Kn-1));
             if (Kv) glVertex3fv(V+3*(Kv-1));

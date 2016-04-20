@@ -1,27 +1,23 @@
-README:
-
 Final project
-CSCI 4229
+
+Alexander Curtiss
+CSCI4229
+
+Description:
+   It really doesn't look like much at the moment, but this has been my test bed for different textures and effects I'm looking to add.
 
 Key bindings:
-=============
+ *  mouse      Change view angle
+ *  m/M        Toggle between viewing particles and viewing their position texture
+ *  a          Toggle axes
+ *  arrows     Change view angle
+ *  PgDn/PgUp  Zoom in and out
+ *  0          Reset view angle
+ *  ESC        Exit
 
-   arrow keys Move character
-   w/W        Speed up
-   q/Q        Slow down
-   spacebar   Reset map
-   m          Toggle between first-person mode and orbital mode (orbital mode is a bit glitchy)
-   ESC        Exit
+Sources:
+   http://www.mbsoftworks.sk/index.php?page=tutorials&series=1&tutorial=24
+
+   http://www.binaryzoo.com/forum/index.php?topic=1437.0
    
-Highlights:
-===========
-
-   Helicopter clips correctly with terrain - set it down anywhere and it'll rest nicely on top
-   Trees sway slightly, as if in the wind
-   Helicopter has lag time and momentum in it's movements and turns
-   The helicopter's side windows are transparent, as can be seen while turning
-   Helicopter clips with trees... with moderately high success rates
-
-Time taken:
-===========
-I've lost count ages ago.
+   https://en.wikibooks.org/wiki/GIMP/Create_a_Stone_Texture

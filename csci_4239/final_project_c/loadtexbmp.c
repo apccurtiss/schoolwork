@@ -1,7 +1,17 @@
-/*
- *  Load texture from BMP file
- */
-#include "CSCIx229.h"
+//
+//  Load texture from BMP file
+//
+//  WARNING:  This is a minimalist implementation of a texture loader.  It will
+//  only load a very specific type of image file.  It is intended to be a
+//  starting point to allow you to load textures.
+//
+//  If you want to use more commonly used and flexible formats like PNG, TIFF or
+//  JPEG, you need to implement your own loader.  Libraries like libtiff,
+//  libjpeg and libpng can be used to load the files into memory.
+//  Alternatively, Qt and SDL provides functionality to load textures.
+//
+
+#include "CSCIx239.h"
 
 /*
  *  Reverse n bytes
@@ -21,7 +31,7 @@ static void Reverse(void* x,const int n)
 /*
  *  Load texture from BMP file
  */
-unsigned int LoadTexBMP(const char* file)
+unsigned int LoadTexBMP(const char* file, unsigned int slot)
 {
    unsigned int   texture;    // Texture name
    FILE*          f;          // File pointer
@@ -30,6 +40,7 @@ unsigned int LoadTexBMP(const char* file)
    unsigned short nbp,bpp;    // Planes and bits per pixel
    unsigned char* image;      // Image data
    unsigned int   k;          // Counter
+   unsigned int   off;        // Image offset
    int            max;        // Maximum texture dimensions
 
    //  Open file
@@ -39,12 +50,14 @@ unsigned int LoadTexBMP(const char* file)
    if (fread(&magic,2,1,f)!=1) Fatal("Cannot read magic from %s\n",file);
    if (magic!=0x4D42 && magic!=0x424D) Fatal("Image magic not BMP in %s\n",file);
    //  Seek to and read header
-   if (fseek(f,16,SEEK_CUR) || fread(&dx ,4,1,f)!=1 || fread(&dy ,4,1,f)!=1 ||
+   if (fseek(f,8,SEEK_CUR) || fread(&off,4,1,f)!=1 ||
+       fseek(f,4,SEEK_CUR) || fread(&dx,4,1,f)!=1 || fread(&dy,4,1,f)!=1 ||
        fread(&nbp,2,1,f)!=1 || fread(&bpp,2,1,f)!=1 || fread(&k,4,1,f)!=1)
      Fatal("Cannot read header from %s\n",file);
    //  Reverse bytes on big endian hardware (detected by backwards magic)
    if (magic==0x424D)
    {
+      Reverse(&off,4);
       Reverse(&dx,4);
       Reverse(&dy,4);
       Reverse(&nbp,2);
@@ -71,7 +84,7 @@ unsigned int LoadTexBMP(const char* file)
    image = (unsigned char*) malloc(size);
    if (!image) Fatal("Cannot allocate %d bytes of memory for image %s\n",size,file);
    //  Seek to and read image
-   if (fseek(f,20,SEEK_CUR) || fread(image,size,1,f)!=1) Fatal("Error reading data from image %s\n",file);
+   if (fseek(f,off,SEEK_SET) || fread(image,size,1,f)!=1) Fatal("Error reading data from image %s\n",file);
    fclose(f);
    //  Reverse colors (BGR -> RGB)
    for (k=0;k<size;k+=3)
@@ -81,6 +94,7 @@ unsigned int LoadTexBMP(const char* file)
       image[k+2] = temp;
    }
 
+   glActiveTexture(slot);
    //  Sanity check
    ErrCheck("LoadTexBMP");
    //  Generate 2D texture

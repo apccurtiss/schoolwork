@@ -1,614 +1,537 @@
 /*
+ *  Final project test bed
  *  Alexander Curtiss
+ *  
+ *  Displays particules with attributes stored in textures
+ *
+ *  Key bindings:
+ *  mouse      Change view angle
+ *  m/M        Toggle between viewing particles and viewing their position texture
+ *  a          Toggle axes
+ *  arrows     Change view angle
+ *  PgDn/PgUp  Zoom in and out
+ *  0          Reset view angle
+ *  ESC        Exit
  */
-#include "CSCIx229.h"
-#include "environment.h"
-#include <stdio.h>
-#include <stdlib.h>
-#include <time.h>
 
-#define SNOW_COUNT 2500
-#define MAX_SPEED 0.001
-#define FOG_DENSITY 0.2
+#include "CSCIx239.h"
 
-//  Width and height
-int w = 600;
-int h = 600;
+//  Number of particles
+#define N 50
 
-int starting = 1; //  Game has just begun
-int landed = 1;   //  Helicopter has landed
-int mode=1;       //  First person or orbital
-int th=0;         //  Azimuth of view angle
-int ph=-45;       //  Elevation of view angle
-int fov=55;       //  Field of view
-double asp=1;     //  Aspect ratio
-double dim=3.0;   //  Size of world
-int emission =   0;  // Emission intensity (%)
-int ambient  =  30;  // Ambient intensity (%)
-int diffuse  = 100;  // Diffuse intensity (%)
-int specular =   0;  // Specular intensity (%)
-float viewy  =  .6;  // Elevation of light
-double speed = 0;    //  Speed of helicopter
-float acc = 0;       //  Helicopter vertical motion
-float heliPos[3]={0,0.2,0}; //  Helicopter position
-float tick  = 0;            //  Game tick
-float snowflakes[SNOW_COUNT][2];  //  Location of snowflakes  
-float y[65][65];                  //  Terrain map
-float ymin=+1e8;
-float ymax=-1e8;
-float ymag=1;
-//  Used to process animations and delayed events, like vehicle roll
-float animationTick = 0, rollTick  = 0, pitchTick = 0, turnTick = 0, speedTick = 0;
-//  Textures
-unsigned int leafTex, ground;
-//  Models - loaded seperately for animations and coloring
-int body, prop, doors;
-//  Used to tell when keys are pressed
-int up = 0, down = 0, left = 0, right = 0, faster = 0, slower = 0;
+//  Modes
+#define MODE_COUNT 3
+#define PARTICLES 0
+#define BUMP_MAP 1
+#define WATER 2
+#define SHADER_COUNT 5
 
-typedef struct{
-   float x;
-   float y;
-   float z;
-   float w;
-   float h;
-} tree;
 
-//  Used to generate the map
-tree trees[] = {
-//  X, Y, Z, Width, Height
-{-1,0,1,1,4},
-{2,0,1,0.9,3},
-{-1,0,-3,1,2},
-{-3,0,-3,1.3,2},
-{2,0,-1.8,0.8,2.8},
-};
-int treeSize = sizeof(trees) / sizeof(*trees); //  Used so often, it helps to figure it out now
+//  Texture handles
+#define DEFAULT 0
+#define VELOCITY 1
+#define POSITION 2
+#define WIND 3
+#define TERRAIN 4
+#define CHOPPY_WATER 5
+#define SMOOTH_WATER 6
+
+//  Attribute array handle
+#define PARTICLE_ARRAY 4
+
+float axis_length=0.5;     //  What it says on the tin
+int display_axis=1;        //  Display axes
+int fov=5;                 //  Field of view
+int mode=0;                //  Change view
+int pause=0;               //  Pause particles
+int th=0;                  //  Azimuth of view angle
+int ph=0;                  //  Elevation of view angle
+int n;                     //  Particle count
+int W, H;                  //  Viewport size
+int mX, mY;                //  Mouse coordinates
+float tick = 0;            //  Used to control frame rate
+double asp=1;              //  Aspect ratio
+double dim=50.0;           //  Size of world
+float wind_scale = 1.0;    //
+
+int shader[SHADER_COUNT] = {0,0,0,0,0}; //  Shader programs
+unsigned int textures[5] = {0,0,0,0,0}; //  Texture location (first one unused)
+unsigned int heightmap;
+char* text[] = {"Bump map","Particles","Water"};
+char* Name[] = {"","","","","particle_numbers",NULL};
+float particle_numbers[2*N*N]; //  Used to identify particles
 
 /*
- *  Draws the ground - taken from ex17 with slight changes
+ *  Get particles ready
  */
-void drawGround() {
+void init_particles(void)
+{
+   //  Each particle needs to know where on the texture to look, so this sets their coordinates
+   float* particle_counter = particle_numbers;
    int i,j;
-   float y0 = (ymin+ymax)/2;
-   glEnable(GL_TEXTURE_2D);
-   glBindTexture(GL_TEXTURE_2D,ground);
-   glPushMatrix();
-   for (i=0;i<64;i++) {
-      for (j=0;j<64;j++) {
-         float x=16*i-512;
-         float z=16*j-512;
-         glBegin(GL_QUADS);
-         glTexCoord2f((i+0)/64.,(j+1)/64.); glVertex3d(x+ 0,ymag*(y[i+0][j+1]-y0),z+16);
-         glTexCoord2f((i+1)/64.,(j+1)/64.); glVertex3d(x+16,ymag*(y[i+1][j+1]-y0),z+16);
-         glTexCoord2f((i+1)/64.,(j+0)/64.); glVertex3d(x+16,ymag*(y[i+1][j+0]-y0),z+0);
-         glTexCoord2f((i+0)/64.,(j+0)/64.); glVertex3d(x+ 0,ymag*(y[i+0][j+0]-y0),z+0);
+   n = N;
+   for (i=0;i<n;i++) {
+      float column = (float)i / (float)n;
+      for (j=0;j<n;j++) {
+         float row = (float)j / (float)n;
          
-         glEnd();
+         *particle_counter++  = column;
+         *particle_counter++  = row;
       }
    }
-   glPopMatrix();
+}
+
+/*
+ *  Gets textures ready
+ */
+void init_textures() {
+   //  Creates the heightmap texture
+   LoadTexBMP("heightmap.bmp", GL_TEXTURE4);
+   LoadTexBMP("choppy_water_texture.bmp", GL_TEXTURE5);
+   LoadTexBMP("smooth_water_texture.bmp", GL_TEXTURE6);
+   
+   //  Creates 3D wind texture
+   CreateNoise3D(GL_TEXTURE3);
+   
+   //  Stores values before they're made into a texture
+   unsigned char* buf = malloc(N*N*4);
+   int i,j;
+   
+   //  Velocity texture - begin as a constant
+   for (i=0;i<N;i++) {
+      for (j=0;j<N;j++) {
+         int loc = (i + (N * j)) * 4;
+         buf[loc+0] = 50;
+         buf[loc+1] = 100;
+         buf[loc+2] = 50;
+         buf[loc+3] = 255;
+      }
+   }
+   glActiveTexture(GL_TEXTURE1);
+   //  Create texture location
+   glGenTextures(1,&textures[VELOCITY]);
+   //  Bind texture
+   glBindTexture(GL_TEXTURE_2D,textures[VELOCITY]);
+   //  Write texture
+   glTexImage2D(GL_TEXTURE_2D,0,4,N,N,0,GL_RGBA,GL_UNSIGNED_BYTE,buf);
+   if (glGetError()) Fatal("Error in glTexImage2D\n");
+   //  Scale linearly when image size doesn't match
+   glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
+   glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);
+   
+   // Position texture - begin as random value
+   for (i=0;i<N;i++) {
+      for (j=0;j<N;j++) {
+         int loc = (j + (N * i)) * 4;
+         buf[loc+0] = rand()%256;
+         buf[loc+1] = rand()%256;
+         buf[loc+2] = rand()%256;
+         buf[loc+3] = 255;
+      }
+   }
+   glActiveTexture(GL_TEXTURE2);
+   //  Create texture location
+   glGenTextures(1,&textures[POSITION]);
+   //  Bind texture
+   glBindTexture(GL_TEXTURE_2D,textures[POSITION]);
+   //  Write texture
+   glTexImage2D(GL_TEXTURE_2D,0,4,N,N,0,GL_RGBA,GL_UNSIGNED_BYTE,buf);
+   if (glGetError()) Fatal("Error in glTexImage2D\n");
+   //  Scale linearly when image size doesn't match
+   glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
+   glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);
+   
+   free(buf);
+}
+
+/*
+ *  Draw ground with heightmap
+ */
+void draw_terrain()
+{
+   int id;
+   
+   glEnable(GL_TEXTURE_2D);
+   glUseProgram(shader[3]);
+   
+   //  Pass textures to particle shader
+   id = glGetUniformLocation(shader[3], "heightmap_texture");
+   if (id>=0) glUniform1i(id,TERRAIN);
+   
+   //  Set particle size
+   glPointSize(3);
+   //  Point attribute array to local array
+   glVertexAttribPointer(PARTICLE_ARRAY,2,GL_FLOAT,GL_FALSE,0,particle_numbers);
+   //  Enable array used by DrawArrays
+   glEnableVertexAttribArray(PARTICLE_ARRAY);
+   //  Draw arrays
+   glDrawArrays(GL_POINTS,0,N*N);
+   
+   glDisableVertexAttribArray(PARTICLE_ARRAY);
+   
    glDisable(GL_TEXTURE_2D);
 }
 
 /*
- *  Draws parts of the display and the snow as an overlay - taken from ex20 with major changes
+ *  Draw particles
  */
-void overlay()
+void draw_particles(void)
 {
-   //  Project as orthoganal
-   glPushAttrib(GL_TRANSFORM_BIT|GL_ENABLE_BIT);
-   glMatrixMode(GL_PROJECTION);
-   glPushMatrix();
-   glLoadIdentity();
-   glOrtho(-asp,+asp,-1,1,-1,1);
-   glMatrixMode(GL_MODELVIEW);
-   glPushMatrix();
-   glLoadIdentity();
-   glDisable(GL_DEPTH_TEST);
+   int id;
    
-   //  Speed indicator
-   glBegin(GL_QUADS);
-   glColor3f(0.1,0.2,0.5);
-   glVertex2f(-0.925,-0.5);
-   glVertex2f(-0.775,-0.5);
-   glColor3f(0.2,0.4,0.6);
-   glVertex2f(-0.8,-0.9);
-   glVertex2f(-0.9,-0.9);
+   glEnable(GL_TEXTURE_2D);
+   glUseProgram(shader[0]);
    
-   glColor3f(0.3,0.5,0.7);
-   glVertex2f(-0.8 + (0.025 * speed / MAX_SPEED),-0.9 + (0.4 * speed / MAX_SPEED));
-   glVertex2f(-0.8,-0.9);
-   glVertex2f(-0.9,-0.9);
-   glVertex2f(-0.9 - (0.025 * speed / MAX_SPEED),-0.9 + (0.4 * speed / MAX_SPEED));
-   glEnd();
+   //  Pass textures to particle shader
+   id = glGetUniformLocation(shader[0], "velocity_texture");
+   if (id>=0) glUniform1i(id,VELOCITY);
+   id = glGetUniformLocation(shader[0], "position_texture");
+   if (id>=0) glUniform1i(id,POSITION);
+   id = glGetUniformLocation(shader[0], "wind_texture");
+   if (id>=0) glUniform1i(id,WIND);
    
-   //  Compass
-   int i;
-   glLineWidth(2.5);
-   glColor3f(0, 0, 0);
-   glBegin(GL_LINES);
-   for(i = 0; i <= 360; i+=5){
-      glVertex2f(0.8 + Sin(i) / 10, 0.8 + Cos(i) / 10);
-      glVertex2f(0.8 + Sin(i + 5) / 10, 0.8 + Cos(i + 5) / 10);
-   }
-   glVertex2f(0.8 + Sin(th) / 10, 0.8 + Cos(th) / 10);
-   glVertex2f(0.8, 0.8);
-   glEnd();
+   //  Set particle size
+   glPointSize(3);
+   //  Point attribute array to local array
+   glVertexAttribPointer(PARTICLE_ARRAY,2,GL_FLOAT,GL_FALSE,0,particle_numbers);
+   //  Enable array used by DrawArrays
+   glEnableVertexAttribArray(PARTICLE_ARRAY);
+   //  Draw arrays
+   glDrawArrays(GL_POINTS,0,N*N);
    
-   //  Snowflakes
-   glColor3f(1,1,1);
-   glBegin(GL_POINTS);
-   for(i = 0; i < SNOW_COUNT; i++) {
-      glVertex2f(snowflakes[i][0],snowflakes[i][1]);
-   }
-   glEnd();
+   glDisableVertexAttribArray(PARTICLE_ARRAY);
    
-   //  Reset everything
-   glEnable(GL_DEPTH_TEST);
-   glPopMatrix();
-   glMatrixMode(GL_PROJECTION);
-   glPopMatrix();
-   glPopAttrib();
+   glDisable(GL_TEXTURE_2D);
 }
 
+/*
+ *  Draw ground with heightmap
+ */
+void draw_water()
+{
+   int id;
+   
+   glEnable(GL_TEXTURE_2D);
+   glUseProgram(shader[4]);
+   
+   //  Pass textures to particle shader
+   id = glGetUniformLocation(shader[4], "tick");
+   if (id>=0) glUniform1f(id,tick);
+   //  Pass textures to particle shader
+   id = glGetUniformLocation(shader[4], "water");
+   if (id>=0) glUniform1f(id,4);
+   //  Pass textures to particle shader
+   id = glGetUniformLocation(shader[4], "smooth_water");
+   if (id>=0) glUniform1f(id,SMOOTH_WATER);
+   
+   //  Set particle size
+   glPointSize(3);
+   //  Point attribute array to local array
+   glVertexAttribPointer(PARTICLE_ARRAY,2,GL_FLOAT,GL_FALSE,0,particle_numbers);
+   //  Enable array used by DrawArrays
+   glEnableVertexAttribArray(PARTICLE_ARRAY);
+   //  Draw arrays
+   glDrawArrays(GL_POINTS,0,N*N);
+   
+   glDisableVertexAttribArray(PARTICLE_ARRAY);
+   
+   glDisable(GL_TEXTURE_2D);
+}
+
+/*
+ *  Redraw textures to update positions and velocities
+ */
+void update_textures(int sh) {
+   int id;
+   glEnable(GL_TEXTURE_2D);
+   
+   //  Set shader
+   glUseProgram(shader[sh]);
+   //  Pass textures
+   id = glGetUniformLocation(shader[sh], "velocity_texture");
+   if (id>=0) glUniform1i(id,VELOCITY);
+   id = glGetUniformLocation(shader[sh], "position_texture");
+   if (id>=0) glUniform1i(id,POSITION);
+   id = glGetUniformLocation(shader[sh], "scale");
+   if (id>=0) glUniform1i(id,wind_scale);
+   //  Disable depth
+   glDisable(GL_DEPTH_TEST);
+   //  Identity projections
+   glMatrixMode(GL_PROJECTION);
+   glLoadIdentity();
+   glMatrixMode(GL_MODELVIEW);
+   glLoadIdentity();
+
+   //  Draw square on screen to display updated texture
+   glBegin(GL_QUADS);
+   glTexCoord2f(0,0); glVertex2f(-1,-1);
+   glTexCoord2f(0,1); glVertex2f(-1,+1);
+   glTexCoord2f(1,1); glVertex2f(+1,+1);
+   glTexCoord2f(1,0); glVertex2f(+1,-1);
+   glEnd();
+   
+   //  Re-render updated texture to original
+   glBindTexture(GL_TEXTURE_2D,textures[sh]);
+   glCopyTexImage2D(GL_TEXTURE_2D,0,GL_RGBA8,0,0,W,H,0);
+   
+   //  Clear screen for the rest of the image
+   glClear(GL_COLOR_BUFFER_BIT);
+   
+   //  Reset defaults
+   glUseProgram(shader[DEFAULT]);
+   glDisable(GL_TEXTURE_2D);
+}
+
+void draw_axis() {
+   glDisable(GL_TEXTURE_2D);
+   glUseProgram(0);
+   glColor3f(1,1,1);
+   
+   glBegin(GL_LINES);
+   glVertex3d(0.0,0.0,0.0);
+   glVertex3d(axis_length,0.0,0.0);
+   glVertex3d(0.0,0.0,0.0);
+   glVertex3d(0.0,axis_length,0.0);
+   glVertex3d(0.0,0.0,0.0);
+   glVertex3d(0.0,0.0,axis_length);
+   glEnd();
+   
+   //  Label axes
+   glRasterPos3d(axis_length,0.0,0.0);
+   Print("X");
+   glRasterPos3d(0.0,axis_length,0.0);
+   Print("Y");
+   glRasterPos3d(0.0,0.0,axis_length);
+   Print("Z");
+}
+
+/*
+ *  OpenGL (GLUT) calls this routine to display the scene
+ */
 void display()
 {
+   //  Lock to 60 FPS
+   float time = 0.001*glutGet(GLUT_ELAPSED_TIME);
+   if (time < tick + 0.017)
+      return;
+   tick = time;
+
+   //  Erase the window and the depth buffer
    glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
+   
+   //  Update the textures
+   if (!pause) {
+      update_textures(POSITION);
+      //  Bugged
+      //update_textures(VELOCITY);
+   }
+   
    glLoadIdentity();
-   glShadeModel(GL_SMOOTH);
+   glTranslatef(0,-0.2,0);
+   glRotatef(ph,1,0,0);
+   glRotatef(th,0,1,0);
    
-   //  First person perspective
-   viewy = 0.6 + heliPos[1] * 0.5;
-   if(mode)
-      gluLookAt(heliPos[0] - Cos(th) * 2.5,heliPos[1] + 1 + speed * 70,heliPos[2] - Sin(th) * 2.5, heliPos[0],heliPos[1],heliPos[2], 0,1,0);
-   //  Orbital view
-   else
-      gluLookAt(-Sin(th) * Cos(ph) * 4,-Sin(ph) * 4,-Cos(th) * Cos(ph) * 4, 0,0,0, 0,Cos(ph),0);
+   //  Draw bumpmap
+   if (mode == 0)
+      draw_terrain();
    
-   //  Light
-   float Ambient[]  = {0.01*ambient ,0.01*ambient ,0.01*ambient ,1.0};
-   float Diffuse[]  = {0.01*diffuse ,0.01*diffuse ,0.01*diffuse ,1.0};
-   float Specular[] = {0.01*specular,0.01*specular,0.01*specular,1.0};
-   float Position[] = {10,0,2,1.0};
-   float white[]    = {1,1,1,1};
-   glColor3f(1,1,1);
-   glEnable(GL_LIGHT0);
-   glEnable(GL_NORMALIZE);
-   glEnable(GL_LIGHTING);
-   glColorMaterial(GL_FRONT_AND_BACK,GL_AMBIENT_AND_DIFFUSE);
-   glEnable(GL_COLOR_MATERIAL);
-   glLightfv(GL_LIGHT0,GL_AMBIENT ,Ambient);
-   glLightfv(GL_LIGHT0,GL_DIFFUSE ,Diffuse);
-   glLightfv(GL_LIGHT0,GL_SPECULAR,Specular);
-   glLightfv(GL_LIGHT0,GL_POSITION,Position);
-   glMaterialf(GL_FRONT_AND_BACK,GL_SHININESS,32);
-   glMaterialfv(GL_FRONT_AND_BACK,GL_SPECULAR,white);
+   //  Draw snow particles
+   if (mode == 1)
+      draw_particles();
    
-   //  Ground is about 100x larger than the rest of the scene, hence the scaling
-   glPushMatrix();
-   glScaled(0.01,0.01,0.01);
-   drawGround();
-   glPopMatrix();
+   //  Draw water
+   if (mode == 2)
+      draw_water();
    
-   //  Draw all the trees
-   int i;
-   for(i = 0; i < treeSize; i++) {
-      drawTree(trees[i].x, trees[i].y + 0.3, trees[i].z, trees[i].w, trees[i].h, sin(animationTick / i) * 2, 0, leafTex);
-   }
    
-   //  Draw a sphere that the fog can hide the sky with
-   skySphere(heliPos[0],heliPos[1],heliPos[2],5);
    
-   //  Draw the player
-   int pitch = pitchTick;
-   int roll = rollTick;
-   glPushMatrix();
-   //  Body
-   glColor3f(0.3,0.3,0.3);
-   glTranslated(heliPos[0],heliPos[1],heliPos[2]);
-   glRotated(-th - 90 + turnTick, 0,1,0);
-   glRotated(pitch,1,0,0);
-   glRotated(-roll,0,0,1);
-   glScaled(0.002,0.002,0.002);
-   glCallList(body);
-   
-   //  Rotor blades
-   glPushMatrix();
-   glRotated(animationTick * speedTick * 1000000, 0, 1, 0);
-   glCallList(prop);
-   glPopMatrix();
-   
-   //  Transparent windows
-   glEnable(GL_BLEND);
-   glBlendFunc(GL_SRC_ALPHA,GL_ONE);
-   glDepthMask(0);
-   glColor4f(0.8,0.8,1,0.2);
-   glCallList(doors);
-   glDepthMask(1);
-   glDisable(GL_BLEND);
-   glPopMatrix();
-   glDisable(GL_LIGHTING);
-   glDisable(GL_NORMALIZE);
-   glDisable(GL_LIGHT0);
-   
-   //  Display any text
-   glDisable(GL_TEXTURE_2D);
-   glDisable(GL_LIGHTING);
-   glDisable(GL_DEPTH_TEST);
-   glWindowPos2i(15,10);
-   glColor3f(1,1,1);
-   Print("Speed");
-   glEnable(GL_DEPTH_TEST);
-   if(starting){
-      glWindowPos2i(h/2-180,120);
-      Print("Press 'w' to speed up and 'q' to slow down.");
-      glWindowPos2i(h/2-125,100);
-      Print("Use the arrow keys to navigate!");
-   }
-   
-   //  Draw snow, overlay, and fog
-   overlay();
-   glFogf(GL_FOG_DENSITY, FOG_DENSITY);
-   
-   //  Clean up
-   glEnable(GL_LIGHTING);
+   //  Draw axes
+   if (display_axis)
+      draw_axis();
+
+   //  Display parameters
+   glWindowPos2i(5,5);
+   Print("FPS=%d Mode=%s Scale=%f",
+     FramesPerSecond(),text[mode], wind_scale);
+
    ErrCheck("display");
    glFlush();
    glutSwapBuffers();
 }
 
 /*
- * Controls game actions such as collisions and motion
+ *  GLUT calls this routine when the window is resized
  */
 void idle()
 {
-   double t = glutGet(GLUT_ELAPSED_TIME)/1000.0;
-   int obstructedx = 0, obstructedz = 0;
-   //  Used to cap game speed - only tick if it's been 0.01 second since the last tick.
-   if(t > tick + .01) {
-      tick = t;
-      //  Used to control animations and other events!
-      animationTick+= 0.01;
-      
-      float step = 0.035*Sin(-pitchTick);  //  How far to move per tick
-      int i;
-      
-      //  Checks horizontal clipping
-      if (up || down) {
-         for(i=0; i < treeSize; i++) {
-            if(fabs(trees[i].y - heliPos[1]) < trees[i].h - 0.2) //  Checks y-axis
-            {
-               //  Checks for x-axis clipping
-               if(fabs(trees[i].x - heliPos[0]) > trees[i].w
-               && fabs(trees[i].x - heliPos[0] - Cos(th)*step) < trees[i].w
-               && fabs(trees[i].z - heliPos[2]) <= trees[i].w - 0.5)
-                  obstructedx = 1;
-               //  Checks for z-axis clipping
-               if(fabs(trees[i].z - heliPos[2]) > trees[i].w
-               && fabs(trees[i].z - heliPos[2] - Sin(th)*step) < trees[i].w
-               && fabs(trees[i].x - heliPos[0]) <= trees[i].w - 0.5)
-                  obstructedz = 1;
-               
-            }
-         }
-      }
-      
-      float pitchAmount = 0.3;
-      float rollAmount = 0.3;
-      float turnAmount = 0.3;
-      //  Only move if not clipping and in first-person mode
-      if (right && (!landed || !mode)) {
-         rollTick+=rollAmount * 2;
-         turnTick+=turnAmount * 2;
-         if(!starting && mode) {
-            th += 2;
-         } else {
-            th += 2;
-         }
-      } if (left && (!landed || !mode)) {
-         rollTick-=rollAmount * 2;
-         turnTick-=turnAmount * 2;
-         if(!starting && mode) {
-            th -= 2;
-         } else {
-            th -= 2;
-         }
-      } if (up && (!landed || !mode)) {
-         pitchTick-=pitchAmount * 2;
-         if(!starting && mode) {
-            if(!obstructedx)
-               heliPos[0] += Cos(th)*step;
-            if(!obstructedz)
-               heliPos[2] += Sin(th)*step;
-         } else {
-            ph -= 2;
-         }
-      }
-      if (down && (!landed || !mode)) {
-         pitchTick+=pitchAmount * 2;
-         if(!starting && mode) {
-            if(!obstructedx)
-               heliPos[0] += Cos(th)*step;
-            if(!obstructedz)
-               heliPos[2] += Sin(th)*step;
-         } else {
-            ph += 2;
-         }
-      }
-      
-      //  Slowly resets rotation back to 0
-      if (pitchTick > pitchAmount)
-         pitchTick-=pitchAmount;
-      else if (pitchTick < -pitchAmount)
-         pitchTick+=pitchAmount;
-      if (rollTick > rollAmount)
-         rollTick-=rollAmount;
-      else if (rollTick < -rollAmount)
-         rollTick+=rollAmount;
-      if (turnTick > turnAmount)
-         turnTick-=turnAmount;
-      else if (turnTick < -turnAmount)
-         turnTick+=turnAmount;
-      
-      //  Caps rotations
-      if(pitchTick > 45)
-         pitchTick = 45;
-      else if (pitchTick < -45)
-         pitchTick = -45;
-      if(rollTick > 25)
-         rollTick = 25;
-      else if (rollTick < -25)
-         rollTick = -25;
-      if(turnTick > 15)
-         turnTick = 15;
-      else if (turnTick < -15)
-         turnTick = -15;
-      
-      ph %= 360;
-      th %= 360;
-      
-      //  Adjusts rotor speed
-      if (slower) speed -= 0.00001;
-      if (faster) speed += 0.00001;
-      
-      //  Caps rotor speed
-      if (speed > MAX_SPEED) speed = MAX_SPEED;
-      if (speed < 0)        speed = 0;
-      
-      //  Allows for rotor speed to reduce slowly on it's own, rather than stopping immidiately
-      speedTick *= 0.99;
-      if (speedTick < speed) speedTick = speed;
-      if (speedTick < 0.000001) speedTick = 0.000001;
-      
-      //  Calculate helicopter acceletation
-      acc += (speed * Cos(rollTick) * Cos(pitchTick)) - 0.0007;
-      if (acc < -0.1) acc = -0.1;
-      if (acc > 0.01) acc = 0.01;
-      if(acc > 0) landed = 0;
-      
-      //  Checks clipping on top of trees, albeit awkwardly
-      for(i=0; i < treeSize; i++) {
-         if(fabs(heliPos[0] - trees[i].x) <= trees[i].w
-         && fabs(heliPos[2] - trees[i].z) <= trees[i].w)
-         {
-            if(heliPos[1] >= trees[i].y + trees[i].h
-            && heliPos[1] + acc <= trees[i].y + trees[i].h)
-            {
-               landed = 1;
-               acc = 0;
-               break;
-            }
-         }
-      }
-      
-      //  Adjusts helicopter position
-      heliPos[1] += acc * (20 - heliPos[1] * 3) / 20;
-      //  Cap height
-      if(heliPos[1] > 3) {
-         heliPos[1] = 3;
-      }
-      
-      //  Prevents helicopter from leaving map
-      if (heliPos[0] > 5 ) heliPos[0] = 5;
-      if (heliPos[0] < -5) heliPos[0] = -5;
-      if (heliPos[2] > 5 ) heliPos[2] = 5;
-      if (heliPos[2] < -5) heliPos[2] = -5;
-      
-      //  Clips helicopter with terrain
-      //  Converts between player position (-5 through 5) and map position (0 through 64)
-      int mapX = heliPos[0] * 6.4 + 32 ;
-      int mapZ = heliPos[2] * 6.4 + 32;
-      float y0 = (ymin+ymax)/2;
-      //  Clips with ground
-      if (heliPos[1] < ymag*(y[mapX][mapZ]-y0) * 0.01) {
-         heliPos[1] = ymag*(y[mapX][mapZ]-y0) * 0.01;
-         landed = 1;
-         acc = 0;
-      }
-      
-      //  Updates snow positions
-      for(i = 0; i < SNOW_COUNT; i++) {
-         snowflakes[i][0] += Sin(animationTick + i) / h;
-         snowflakes[i][1] -= (1 + Sin(animationTick - i)) / h + 0.01;
-         if(snowflakes[i][1] < -1) {
-            snowflakes[i][0] = (float)(rand() % (w * 2)) / (float)w - 1;
-            snowflakes[i][1] = 1;
-         }
-      }
-      
-      glutPostRedisplay();
-   }
-}
-
-/*
- * Checks keydown (used in idle())
- */
-void special(int key,int x,int y)
-{   
-   if (key == GLUT_KEY_RIGHT)
-      right = 1;
-   else if (key == GLUT_KEY_LEFT)
-      left = 1;
-   else if (key == GLUT_KEY_UP)
-      up = 1;
-   else if (key == GLUT_KEY_DOWN)
-      down = 1;
-}
-
-/*
- * Checks keyup (used in idle())
- */
-void specialup(int key,int x,int y)
-{
-   if (key == GLUT_KEY_RIGHT)
-      right = 0;
-   else if (key == GLUT_KEY_LEFT)
-      left = 0;
-   else if (key == GLUT_KEY_UP)
-      up = 0;
-   else if (key == GLUT_KEY_DOWN) 
-      down = 0;
-}
-
-/*
- * Checks keydown
- */
-void key(unsigned char ch,int x,int y)
-{
-   //  Exit on ESC
-   if (ch == 27)
-      exit(0);
-   //  Reset view on spacebar
-   else if (ch==' ') {
-      heliPos[0] = 0;
-      heliPos[1] = 0;
-      heliPos[2] = 0;
-      acc        = 0;
-      th = 0;
-      speed = 0;
-   }
-   //  Change mode on m
-   else if (ch=='m') {
-      mode = 1-mode;
-      th = th * (1 - mode);
-      ph = -45;
-      th = 135;
-   }
-   
-   //  Speed up and slow down (used in idle())
-   else if (ch=='q' || ch=='Q')
-      slower = 1;
-   else if (ch=='w' || ch=='W') 
-      faster = 1;
-   
-   //  Start game on keypress
-   if (starting)
-      starting = 0;
-}
-
-/*
- *  Checks keyup (used in idle())
- */
-void key_up(unsigned char ch,int x,int y)
-{
-   if (ch=='q' || ch=='Q') {
-      slower = 0;
-   }
-   else if (ch=='w' || ch=='W') {
-      faster = 0;
-   }
-}
-
-/*
- * Taken from ex18, with very minor changes made
- */
-void reshape(int width,int height)
-{
-   w = width;
-   h = height;
-   asp = (height>0) ? (double)width/height : 1;
-   glViewport(0,0, width,height);
-   Project(fov,asp,dim);
+   //  Tell GLUT it is necessary to redisplay the scene
    glutPostRedisplay();
 }
 
 /*
- * Taken from ex17, with no changes made
+ *  GLUT calls this routine when the window is resized
  */
-void ReadDEM(char* file)
+void reshape(int width,int height)
 {
-   int i,j;
-   FILE* f = fopen(file,"r");
-   if (!f) Fatal("Cannot open file %s\n",file);
-   for (j=0;j<=64;j++)
-      for (i=0;i<=64;i++)
-      {
-         if (fscanf(f,"%f",&y[i][j])!=1) Fatal("Error reading saddleback.dem\n");
-         if (y[i][j] < ymin) ymin = y[i][j];
-         if (y[i][j] > ymax) ymax = y[i][j];
-      }
-   fclose(f);
+   W = width;
+   H = height;
+   //  Ratio of the width to the height of the window
+   asp = (height>0) ? (double)width/height : 1;
+   //  Set the viewport to the entire window
+   glViewport(0,0, width,height);
+   //  Set projection
+   //  Tell OpenGL we want to manipulate the projection matrix
+   glMatrixMode(GL_PROJECTION);
+   //  Undo previous transformations
+   glLoadIdentity();
+   gluPerspective(fov,asp,1,16);
+   
+   //  Switch to manipulating the model matrix
+   glMatrixMode(GL_MODELVIEW);
+   //  Undo previous transformations
+   glLoadIdentity();
 }
 
 /*
- *  Randomized snowflake positions and raises trees to terrain height
+ *  GLUT calls this routine when an arrow key is pressed
  */
-void init() {
-   int i;
-   float y0 = (ymin+ymax)/2;
-   for(i = 0; i < treeSize; i++) {
-      int mapX = trees[i].x * 6.4 + 32 ;
-      int mapZ = trees[i].z * 6.4 + 32;
-      trees[i].y = ymag*(y[mapX][mapZ]-y0) * 0.01;
-   }
-   srand(time(NULL));
-   for(i = 0; i < SNOW_COUNT; i++) {
-      snowflakes[i][0] = (float)(rand() % (w * 2)) / (float)w - 1;
-      snowflakes[i][1] = (float)(rand() % (h * 2)) / (float)h - 1;
+void special_key(int key,int x,int y)
+{
+   //  Right arrow key - increase angle by 5 degrees
+   if (key == GLUT_KEY_RIGHT)
+      th += 5;
+   //  Left arrow key - decrease angle by 5 degrees
+   else if (key == GLUT_KEY_LEFT)
+      th -= 5;
+   //  Up arrow key - increase elevation by 5 degrees
+   else if (key == GLUT_KEY_UP)
+      ph += 5;
+   //  Down arrow key - decrease elevation by 5 degrees
+   else if (key == GLUT_KEY_DOWN)
+      ph -= 5;
+   //  PageUp key - increase dim
+   else if (key == GLUT_KEY_PAGE_DOWN)
+      dim += 0.1;
+   //  PageDown key - decrease dim
+   else if (key == GLUT_KEY_PAGE_UP && dim>1)
+      dim -= 0.1;
+   //  Keep angles to +/-360 degrees
+   th %= 360;
+   ph %= 360;
+   //  Update projection
+   Project(0,asp,dim);
+   //  Tell GLUT it is necessary to redisplay the scene
+   glutPostRedisplay();
+}
+
+/*
+ *  GLUT calls this routine when a key is pressed
+ */
+void normal_key(unsigned char ch,int x,int y)
+{
+   //  Exit on ESC
+   if (ch == 27)
+      exit(0);
+   //  Reset view angle
+   else if (ch == '0')
+      th = ph = 0;
+   //  Toggle axes
+   else if (ch == 'a' || ch == 'A')
+      display_axis = 1-display_axis;
+   else if (ch == 's' || ch == 'S')
+      pause = 1-pause;
+   //  Cycle modes
+   else if (ch == 'm' || ch == 'M')
+      mode = (mode+1)%MODE_COUNT;
+   
+   else if (ch == 'w')
+      wind_scale *= 1.1;
+   else if (ch == 'W')
+      wind_scale /= 1.1;
+   
+   //  Tell GLUT it is necessary to redisplay the scene
+   glutPostRedisplay();
+}
+
+void mouse_click(int button, int state, int x, int y)
+{
+   if(!state) {
+      mX = x;
+      mY = y;
    }
 }
 
+void mouse_move(int x, int y)
+{
+   th += mX - x;
+   ph += mY - y;
+   mX = x;
+   mY = y;
+}
+
+//
+//  Create Shader Program with Location Names
+//
+int CreateShaderProgLoc(char* VertFile,char* FragFile,char* Name[])
+{
+   int k;
+   //  Create program
+   int prog = glCreateProgram();
+   //  Create and compile vertex shader
+   if (VertFile) CreateShader(prog,GL_VERTEX_SHADER,VertFile);
+   //  Create and compile fragment shader
+   if (FragFile) CreateShader(prog,GL_FRAGMENT_SHADER,FragFile);
+   //  Set names
+   for (k=0;Name[k];k++)
+      if (Name[k][0])
+         glBindAttribLocation(prog,k,Name[k]);
+   ErrCheck("CreateShaderProg");
+   //  Link program
+   glLinkProgram(prog);
+   //  Check for errors
+   PrintProgramLog(prog);
+   //  Return name
+   return prog;
+}
+
+/*
+ *  Start up GLUT and tell it what to do
+ */
 int main(int argc,char* argv[])
 {
+   //  Initialize GLUT
    glutInit(&argc,argv);
-   glutInitDisplayMode(GLUT_RGBA | GLUT_DEPTH | GLUT_DOUBLE | GLUT_ALPHA);
-   glEnable(GL_CULL_FACE);
-   glEnable (GL_DEPTH_TEST);
-   glutInitWindowSize(w,h);
+   //  Request double buffered, true color window with Z buffering at 600x600
+   glutInitDisplayMode(GLUT_RGB | GLUT_DEPTH | GLUT_DOUBLE | GLUT_ALPHA);
+   glutInitWindowSize(600,600);
    glutCreateWindow("Alexander Curtiss");
-   
+#ifdef USEGLEW
+   //  Initialize GLEW
+   if (glewInit()!=GLEW_OK) Fatal("Error initializing GLEW\n");
+   if (!GLEW_VERSION_2_0) Fatal("OpenGL 2.0 not supported\n");
+#endif
    //  Set callbacks
    glutDisplayFunc(display);
    glutReshapeFunc(reshape);
-   glutSpecialFunc(special);
-   glutSpecialUpFunc(specialup);
-   glutKeyboardFunc(key);
-   glutKeyboardUpFunc(key_up); 
+   glutSpecialFunc(special_key);
+   glutKeyboardFunc(normal_key);
+   glutMouseFunc(mouse_click);
+   glutMotionFunc(mouse_move);
    glutIdleFunc(idle);
    
-   //  Loads textures
-   leafTex = LoadTexBMP("leaves.bmp");
-   ground = LoadTexBMP("snow.bmp");
-   //  Creates map
-   ReadDEM("saddleback.dem");
-   init();
+   glEnable(GL_TEXTURE_2D);
+   //  Particle shader mostly uses vert, while texture updating shaders use frag
+   shader[0] = CreateShaderProgLoc("particle.vert","particle.frag",Name);
+   shader[1] = CreateShaderProgLoc(NULL,"velocity.frag",Name);
+   shader[2] = CreateShaderProgLoc(NULL,"position.frag",Name);
+   shader[3] = CreateShaderProgLoc("heightmap.vert","heightmap.frag",Name);
+   shader[4] = CreateShaderProgLoc("water.vert","water.frag",Name);
+   //  Initialize texturess
+   init_textures();
+   //  Initialize particles
+   init_particles();
    
-   //  Sets up fog
-   GLfloat fogColor[4] = {1, 1, 1, 1.0};
-   glEnable (GL_FOG);
-   glFogi (GL_FOG_MODE, GL_EXP2);
-   glFogfv (GL_FOG_COLOR, fogColor);
-   glHint (GL_FOG_HINT, GL_NICEST);
-   
-   //  Load objects
-   body = LoadOBJ("body.obj");
-   doors = LoadOBJ("doors.obj");
-   prop = LoadOBJ("prop.obj");
-   
-   //  Pass control to GLUT so it can interact with the user
    ErrCheck("init");
-   
    glutMainLoop();
    return 0;
 }
