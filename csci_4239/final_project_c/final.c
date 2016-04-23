@@ -17,7 +17,8 @@
 #include "CSCIx239.h"
 
 //  Number of particles
-#define N 50
+#define TERRAIN_SIZE 256
+#define TERRAIN_SCALE 4
 
 //  Modes
 #define MODE_COUNT 3
@@ -35,15 +36,15 @@
 #define TERRAIN 4
 #define CHOPPY_WATER 5
 #define SMOOTH_WATER 6
+#define ROCK 7
 
 //  Attribute array handle
 #define PARTICLE_ARRAY 4
 
-float axis_length=0.5;     //  What it says on the tin
+float axis_length=1;       //  What it says on the tin
 int display_axis=1;        //  Display axes
-int fov=5;                 //  Field of view
+int fov=55;                //  Field of view
 int mode=0;                //  Change view
-int pause=0;               //  Pause particles
 int th=0;                  //  Azimuth of view angle
 int ph=0;                  //  Elevation of view angle
 int n;                     //  Particle count
@@ -51,15 +52,25 @@ int W, H;                  //  Viewport size
 int mX, mY;                //  Mouse coordinates
 float tick = 0;            //  Used to control frame rate
 double asp=1;              //  Aspect ratio
-double dim=50.0;           //  Size of world
+double dim=1.8;            //  Size of world
 float wind_scale = 1.0;    //
-
+int relative_x;
+int relative_y;
+int up_pressed = 0;
+int down_pressed = 0;
+int left_pressed = 0;
+int right_pressed = 0;
+float height;
+float user_position[3] = {0,0,0};
 int shader[SHADER_COUNT] = {0,0,0,0,0}; //  Shader programs
 unsigned int textures[5] = {0,0,0,0,0}; //  Texture location (first one unused)
-unsigned int heightmap;
+unsigned int heightmap_texture;
+float* heightmap;
 char* text[] = {"Bump map","Particles","Water"};
 char* Name[] = {"","","","","particle_numbers",NULL};
-float particle_numbers[2*N*N]; //  Used to identify particles
+float particle_numbers[2*TERRAIN_SIZE*TERRAIN_SIZE]; //  Used to identify particles
+
+GLuint terrain_element_buffer;
 
 /*
  *  Get particles ready
@@ -69,7 +80,7 @@ void init_particles(void)
    //  Each particle needs to know where on the texture to look, so this sets their coordinates
    float* particle_counter = particle_numbers;
    int i,j;
-   n = N;
+   n = TERRAIN_SIZE;
    for (i=0;i<n;i++) {
       float column = (float)i / (float)n;
       for (j=0;j<n;j++) {
@@ -79,6 +90,26 @@ void init_particles(void)
          *particle_counter++  = row;
       }
    }
+   
+   unsigned int indices[(TERRAIN_SIZE-1)*(TERRAIN_SIZE-1)*6];
+   
+   unsigned int* index = indices;
+   for(i = 0; i < TERRAIN_SIZE-1; i++) {
+      for(j = 0; j < TERRAIN_SIZE-1; j++) {
+         unsigned int current = (i * TERRAIN_SIZE) + j;
+         *index++ = current;
+         *index++ = current + 1;
+         *index++ = current + 1 + TERRAIN_SIZE;   
+         
+         *index++ = current;
+         *index++ = current + TERRAIN_SIZE;
+         *index++ = current + 1 + TERRAIN_SIZE;
+      }
+   }
+   
+   glGenBuffers(1, &terrain_element_buffer);
+   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, terrain_element_buffer);
+   glBufferData(GL_ELEMENT_ARRAY_BUFFER, (TERRAIN_SIZE-1)*(TERRAIN_SIZE-1)*6 * sizeof(unsigned int), indices, GL_STATIC_DRAW);
 }
 
 /*
@@ -86,56 +117,57 @@ void init_particles(void)
  */
 void init_textures() {
    //  Creates the heightmap texture
-   LoadTexBMP("heightmap.bmp", GL_TEXTURE4);
-   LoadTexBMP("choppy_water_texture.bmp", GL_TEXTURE5);
-   LoadTexBMP("smooth_water_texture.bmp", GL_TEXTURE6);
+   LoadHeightmapBMP("heightmap.bmp", &heightmap, GL_TEXTURE0 + TERRAIN);
+   LoadTexBMP("choppy_water_texture.bmp", GL_TEXTURE0 + CHOPPY_WATER);
+   LoadTexBMP("smooth_water_texture.bmp", GL_TEXTURE0 + SMOOTH_WATER);
+   LoadTexBMP("rock.bmp", GL_TEXTURE0 + ROCK);
    
    //  Creates 3D wind texture
    CreateNoise3D(GL_TEXTURE3);
    
    //  Stores values before they're made into a texture
-   unsigned char* buf = malloc(N*N*4);
+   unsigned char* buf = malloc(TERRAIN_SIZE*TERRAIN_SIZE*4);
    int i,j;
    
    //  Velocity texture - begin as a constant
-   for (i=0;i<N;i++) {
-      for (j=0;j<N;j++) {
-         int loc = (i + (N * j)) * 4;
+   for (i=0;i<TERRAIN_SIZE;i++) {
+      for (j=0;j<TERRAIN_SIZE;j++) {
+         int loc = (i + (TERRAIN_SIZE * j)) * 4;
          buf[loc+0] = 50;
          buf[loc+1] = 100;
          buf[loc+2] = 50;
          buf[loc+3] = 255;
       }
    }
-   glActiveTexture(GL_TEXTURE1);
+   glActiveTexture(GL_TEXTURE0 + VELOCITY);
    //  Create texture location
    glGenTextures(1,&textures[VELOCITY]);
    //  Bind texture
    glBindTexture(GL_TEXTURE_2D,textures[VELOCITY]);
    //  Write texture
-   glTexImage2D(GL_TEXTURE_2D,0,4,N,N,0,GL_RGBA,GL_UNSIGNED_BYTE,buf);
+   glTexImage2D(GL_TEXTURE_2D,0,4,TERRAIN_SIZE,TERRAIN_SIZE,0,GL_RGBA,GL_UNSIGNED_BYTE,buf);
    if (glGetError()) Fatal("Error in glTexImage2D\n");
    //  Scale linearly when image size doesn't match
    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);
    
    // Position texture - begin as random value
-   for (i=0;i<N;i++) {
-      for (j=0;j<N;j++) {
-         int loc = (j + (N * i)) * 4;
+   for (i=0;i<TERRAIN_SIZE;i++) {
+      for (j=0;j<TERRAIN_SIZE;j++) {
+         int loc = (j + (TERRAIN_SIZE * i)) * 4;
          buf[loc+0] = rand()%256;
          buf[loc+1] = rand()%256;
          buf[loc+2] = rand()%256;
          buf[loc+3] = 255;
       }
    }
-   glActiveTexture(GL_TEXTURE2);
+   glActiveTexture(GL_TEXTURE0 + POSITION);
    //  Create texture location
    glGenTextures(1,&textures[POSITION]);
    //  Bind texture
    glBindTexture(GL_TEXTURE_2D,textures[POSITION]);
    //  Write texture
-   glTexImage2D(GL_TEXTURE_2D,0,4,N,N,0,GL_RGBA,GL_UNSIGNED_BYTE,buf);
+   glTexImage2D(GL_TEXTURE_2D,0,4,TERRAIN_SIZE,TERRAIN_SIZE,0,GL_RGBA,GL_UNSIGNED_BYTE,buf);
    if (glGetError()) Fatal("Error in glTexImage2D\n");
    //  Scale linearly when image size doesn't match
    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
@@ -151,12 +183,22 @@ void draw_terrain()
 {
    int id;
    
+   glEnable(GL_DEPTH_TEST);
    glEnable(GL_TEXTURE_2D);
    glUseProgram(shader[3]);
    
    //  Pass textures to particle shader
    id = glGetUniformLocation(shader[3], "heightmap_texture");
    if (id>=0) glUniform1i(id,TERRAIN);
+   id = glGetUniformLocation(shader[3], "rock_texture");
+   if (id>=0) glUniform1i(id,ROCK);
+   
+   //  Pass textures to particle shader
+   id = glGetUniformLocation(shader[3], "terrain_size");
+   if (id>=0) glUniform1f(id,(float)TERRAIN_SIZE);
+   id = glGetUniformLocation(shader[3], "terrain_scale");
+   if (id>=0) glUniform1f(id,(float)TERRAIN_SCALE);
+   
    
    //  Set particle size
    glPointSize(3);
@@ -165,11 +207,14 @@ void draw_terrain()
    //  Enable array used by DrawArrays
    glEnableVertexAttribArray(PARTICLE_ARRAY);
    //  Draw arrays
-   glDrawArrays(GL_POINTS,0,N*N);
+   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, terrain_element_buffer);
+   
+   glDrawElements(GL_TRIANGLES, (TERRAIN_SIZE-1)*(TERRAIN_SIZE-1)*6, GL_UNSIGNED_INT, 0);
    
    glDisableVertexAttribArray(PARTICLE_ARRAY);
    
    glDisable(GL_TEXTURE_2D);
+   glDisable(GL_DEPTH_TEST);
 }
 
 /*
@@ -192,12 +237,12 @@ void draw_particles(void)
    
    //  Set particle size
    glPointSize(3);
-   //  Point attribute array to local array
    glVertexAttribPointer(PARTICLE_ARRAY,2,GL_FLOAT,GL_FALSE,0,particle_numbers);
+   //  Point attribute array to local array
    //  Enable array used by DrawArrays
    glEnableVertexAttribArray(PARTICLE_ARRAY);
    //  Draw arrays
-   glDrawArrays(GL_POINTS,0,N*N);
+   glDrawArrays(GL_POINTS,0,TERRAIN_SIZE*TERRAIN_SIZE);
    
    glDisableVertexAttribArray(PARTICLE_ARRAY);
    
@@ -218,11 +263,11 @@ void draw_water()
    id = glGetUniformLocation(shader[4], "tick");
    if (id>=0) glUniform1f(id,tick);
    //  Pass textures to particle shader
-   id = glGetUniformLocation(shader[4], "water");
-   if (id>=0) glUniform1f(id,4);
+   id = glGetUniformLocation(shader[4], "choppy_water");
+   if (id>=0) glUniform1i(id,CHOPPY_WATER);
    //  Pass textures to particle shader
    id = glGetUniformLocation(shader[4], "smooth_water");
-   if (id>=0) glUniform1f(id,SMOOTH_WATER);
+   if (id>=0) glUniform1i(id,SMOOTH_WATER);
    
    //  Set particle size
    glPointSize(3);
@@ -231,7 +276,8 @@ void draw_water()
    //  Enable array used by DrawArrays
    glEnableVertexAttribArray(PARTICLE_ARRAY);
    //  Draw arrays
-   glDrawArrays(GL_POINTS,0,N*N);
+   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, terrain_element_buffer);
+   glDrawElements(GL_TRIANGLES, (TERRAIN_SIZE-1)*(TERRAIN_SIZE-1)*6, GL_UNSIGNED_INT, 0);
    
    glDisableVertexAttribArray(PARTICLE_ARRAY);
    
@@ -242,7 +288,7 @@ void draw_water()
  *  Redraw textures to update positions and velocities
  */
 void update_textures(int sh) {
-   int id;
+   /*int id;
    glEnable(GL_TEXTURE_2D);
    
    //  Set shader
@@ -280,6 +326,7 @@ void update_textures(int sh) {
    //  Reset defaults
    glUseProgram(shader[DEFAULT]);
    glDisable(GL_TEXTURE_2D);
+   */
 }
 
 void draw_axis() {
@@ -310,49 +357,47 @@ void draw_axis() {
  */
 void display()
 {
-   //  Lock to 60 FPS
-   float time = 0.001*glutGet(GLUT_ELAPSED_TIME);
-   if (time < tick + 0.017)
-      return;
-   tick = time;
-
-   //  Erase the window and the depth buffer
    glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
    
    //  Update the textures
-   if (!pause) {
-      update_textures(POSITION);
-      //  Bugged
-      //update_textures(VELOCITY);
-   }
+   //update_textures(POSITION);
+   //  Bugged
+   //update_textures(VELOCITY);
    
    glLoadIdentity();
-   glTranslatef(0,-0.2,0);
-   glRotatef(ph,1,0,0);
-   glRotatef(th,0,1,0);
+   
+   user_position[1] = height + 0.2;
+   double user_x = user_position[0];//Sin(th)*Cos(ph);
+   double user_y = user_position[1];//        *Sin(ph);
+   double user_z = user_position[2];//*Cos(th)*Cos(ph);
+   
+   glUseProgram(shader[DEFAULT]);
+   
+   if(mode) gluLookAt(user_x,user_y,user_z,user_x + (Sin(th) * Cos(ph)),user_y + Sin(ph), user_z + (Cos(th) * Cos(ph)), 0,Cos(ph),0);
+   else gluLookAt(Sin(th)*Cos(ph)*TERRAIN_SCALE, Sin(ph)*TERRAIN_SCALE, Cos(th)*Cos(ph)*TERRAIN_SCALE, 0,0,0, 0,Cos(ph),0);
    
    //  Draw bumpmap
-   if (mode == 0)
-      draw_terrain();
+   //if (mode == 0)
+   draw_terrain();
    
    //  Draw snow particles
-   if (mode == 1)
-      draw_particles();
+   //if (mode == 1)
+      //draw_particles();
    
    //  Draw water
-   if (mode == 2)
-      draw_water();
+   //if (mode == 2)
+      //draw_water();
    
-   
-   
-   //  Draw axes
-   if (display_axis)
-      draw_axis();
+   //  Draw water
+   //if (display_axis)
+   draw_axis();
 
+   //glDisable(GL_TEXTURE_2D);
+   glUseProgram(DEFAULT);
+   
    //  Display parameters
    glWindowPos2i(5,5);
-   Print("FPS=%d Mode=%s Scale=%f",
-     FramesPerSecond(),text[mode], wind_scale);
+   Print("FPS: %d || Height: %f || %d, %d || %f", FramesPerSecond(), height, relative_x, relative_y, dim);
 
    ErrCheck("display");
    glFlush();
@@ -365,63 +410,99 @@ void display()
 void idle()
 {
    //  Tell GLUT it is necessary to redisplay the scene
+   //  Lock to 60 FPS
+   float time = 0.001*glutGet(GLUT_ELAPSED_TIME);
+   if (time < tick + 0.017)
+      return;
+   
+   tick = time;
+   
    glutPostRedisplay();
+   
+   relative_x = (user_position[0] + 1) * TERRAIN_SCALE / 4.0 * 256;
+   relative_y = (user_position[2] + 1) * TERRAIN_SCALE / 4.0 * 256;
+   if (relative_x >= 0 && relative_x < 256
+     &&relative_y >= 0 && relative_y < 256)
+      height = heightmap[relative_x + relative_y * 256] / 2;
+   else
+      height = 1;
+   
+   if (up_pressed) {
+      user_position[0] += Sin(th)*0.001;
+      user_position[2] += Cos(th)*0.001;
+   }
+   
+   if (down_pressed) {
+      user_position[0] -= Sin(th)*0.001;
+      user_position[2] -= Cos(th)*0.001;
+   }
+   
+   if (left_pressed) {
+      th += 5;
+   }
+   
+   if (right_pressed) {
+      th -= 5;
+   }
 }
-
+   
 /*
  *  GLUT calls this routine when the window is resized
  */
 void reshape(int width,int height)
 {
-   W = width;
-   H = height;
-   //  Ratio of the width to the height of the window
-   asp = (height>0) ? (double)width/height : 1;
-   //  Set the viewport to the entire window
-   glViewport(0,0, width,height);
-   //  Set projection
-   //  Tell OpenGL we want to manipulate the projection matrix
-   glMatrixMode(GL_PROJECTION);
-   //  Undo previous transformations
-   glLoadIdentity();
-   gluPerspective(fov,asp,1,16);
-   
-   //  Switch to manipulating the model matrix
-   glMatrixMode(GL_MODELVIEW);
-   //  Undo previous transformations
-   glLoadIdentity();
+  W = width;
+  H = height;
+  //  Ratio of the width to the height of the window
+  asp = (height>0) ? (double)width/height : 1;
+  //  Set the viewport to the entire window
+  glViewport(0,0, width,height);
+  
+  Project(fov, asp, dim);
+}
+  
+  /*
+  *  GLUT calls this routine when an arrow key is pressed
+  */
+void special_key(int key,int x,int y)
+{
+   //  Right arrow key - increase angle by 5 degrees
+   if (key == GLUT_KEY_RIGHT)
+      right_pressed = 1;
+   //  Left arrow key - decrease angle by 5 degrees
+   else if (key == GLUT_KEY_LEFT)
+      left_pressed = 1;
+   //  Up arrow key - increase elevation by 5 degrees
+   else if (key == GLUT_KEY_UP)
+      up_pressed = 1;
+   //  Down arrow key - decrease elevation by 5 degrees
+   else if (key == GLUT_KEY_DOWN)
+      down_pressed = 1;
+   //  PageUp key - increase dim
+   else if (key == GLUT_KEY_PAGE_DOWN)
+      dim += 0.1;
+   //  PageDown ey - decrease dim
+   else if (key == GLUT_KEY_PAGE_UP && dim>1)
+      dim -= 0.1;
+   //  Update projection
+   Project(fov, asp, dim);
+   //  Tell GLUT it is necessary to redisplay the scene
+   glutPostRedisplay();
 }
 
 /*
  *  GLUT calls this routine when an arrow key is pressed
  */
-void special_key(int key,int x,int y)
+void special_keyup(int key,int x,int y)
 {
-   //  Right arrow key - increase angle by 5 degrees
    if (key == GLUT_KEY_RIGHT)
-      th += 5;
-   //  Left arrow key - decrease angle by 5 degrees
+      right_pressed = 0;
    else if (key == GLUT_KEY_LEFT)
-      th -= 5;
-   //  Up arrow key - increase elevation by 5 degrees
+      left_pressed = 0;
    else if (key == GLUT_KEY_UP)
-      ph += 5;
-   //  Down arrow key - decrease elevation by 5 degrees
+      up_pressed = 0;
    else if (key == GLUT_KEY_DOWN)
-      ph -= 5;
-   //  PageUp key - increase dim
-   else if (key == GLUT_KEY_PAGE_DOWN)
-      dim += 0.1;
-   //  PageDown key - decrease dim
-   else if (key == GLUT_KEY_PAGE_UP && dim>1)
-      dim -= 0.1;
-   //  Keep angles to +/-360 degrees
-   th %= 360;
-   ph %= 360;
-   //  Update projection
-   Project(0,asp,dim);
-   //  Tell GLUT it is necessary to redisplay the scene
-   glutPostRedisplay();
+      down_pressed = 0;
 }
 
 /*
@@ -435,24 +516,17 @@ void normal_key(unsigned char ch,int x,int y)
    //  Reset view angle
    else if (ch == '0')
       th = ph = 0;
-   //  Toggle axes
-   else if (ch == 'a' || ch == 'A')
-      display_axis = 1-display_axis;
-   else if (ch == 's' || ch == 'S')
-      pause = 1-pause;
-   //  Cycle modes
-   else if (ch == 'm' || ch == 'M')
-      mode = (mode+1)%MODE_COUNT;
-   
-   else if (ch == 'w')
-      wind_scale *= 1.1;
-   else if (ch == 'W')
-      wind_scale /= 1.1;
-   
+   else if (ch == 'M' || ch == 'm')
+      mode = !mode;
+   else if (ch == 'F')
+      fov++;
+   else if (ch == 'f')
+      fov--;
+   Project(fov, asp, dim);
    //  Tell GLUT it is necessary to redisplay the scene
    glutPostRedisplay();
 }
-
+ 
 void mouse_click(int button, int state, int x, int y)
 {
    if(!state) {
@@ -461,12 +535,20 @@ void mouse_click(int button, int state, int x, int y)
    }
 }
 
-void mouse_move(int x, int y)
+void mouse_active_move(int x, int y)
 {
    th += mX - x;
    ph += mY - y;
    mX = x;
    mY = y;
+}
+
+void mouse_passive_move(int x, int y)
+{
+   //th += mX - x;
+   //ph += mY - y;
+   //mX = x;
+   //mY = y;
 }
 
 //
@@ -514,9 +596,11 @@ int main(int argc,char* argv[])
    glutDisplayFunc(display);
    glutReshapeFunc(reshape);
    glutSpecialFunc(special_key);
+   glutSpecialUpFunc(special_keyup);
    glutKeyboardFunc(normal_key);
    glutMouseFunc(mouse_click);
-   glutMotionFunc(mouse_move);
+   glutMotionFunc(mouse_active_move);
+   glutPassiveMotionFunc(mouse_passive_move);
    glutIdleFunc(idle);
    
    glEnable(GL_TEXTURE_2D);

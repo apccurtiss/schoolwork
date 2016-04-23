@@ -1,0 +1,2 @@
+gcc -c -O3 -Wall hw5.c
+makefile:28: recipe for target 'hw5.o' failed

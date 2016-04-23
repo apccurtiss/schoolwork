@@ -4,20 +4,32 @@ Alexander Curtiss
 CSCI4229
 
 Description:
-   It really doesn't look like much at the moment, but this has been my test bed for different textures and effects I'm looking to add.
+   So far I've been messing with some of the more difficult shaders and trying to make them look right. What I've got so far is just a testing playground - the next step is to combine everything together to make a complete scene. I've broken down all the little bits below.
+   
+   Height-mapped terrain:
+      This was meant to overcome slowdowns I experienced with last semester's project by loading in .obj files. It reads a .bmp in as a texture and models the terrain's height after that. The next step is to use the gba channels to provide other data such as color.
+   Particles:
+      I've been trying to get falling snow particles to look less predictible by using a 3D noise texture to simulate more or less 'wind' at certain spots. It could be going better. It needs lots of tweeking.
+   Water:
+      The water uses two textures moving in opposite directions across it's surface to change height and color values, as well as pseudo-randomly create a 'shine' at the top of waves. I think it looks pretty good.
+      
+   To do:
+      - Per pixel lighting
+      - Normal mapping
+      - Bloom lighting
+      - Reflections
+      - Whatever else looks nice
 
 Key bindings:
  *  mouse      Change view angle
- *  m/M        Toggle between viewing particles and viewing their position texture
- *  a          Toggle axes
  *  arrows     Change view angle
+ *  m/M        Toggle between shaders
  *  PgDn/PgUp  Zoom in and out
  *  0          Reset view angle
  *  ESC        Exit
 
 Sources:
    http://www.mbsoftworks.sk/index.php?page=tutorials&series=1&tutorial=24
-
    http://www.binaryzoo.com/forum/index.php?topic=1437.0
-   
    https://en.wikibooks.org/wiki/GIMP/Create_a_Stone_Texture
+   http://www.2dtextures.com/

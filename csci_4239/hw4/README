@@ -1,0 +1,24 @@
+README:
+
+Assignment 4: Projections and first-person view
+Alexander Curtiss
+CSCI 4229
+
+Key bindings:
+=============
+---NOTE: Movement controls are reversed when upside-down---
+---Also, the controls are a bit clunky while looking at very high or low angles, sorry about that---
+
+   arrow keys  Change view angle - also change camera position in overview mode
+   w/a/s/d     Move camera forward, backward, left, and right while in third person view
+   q/e         Move camera up and down while in third person view
+   m           Change mode - cycles through:
+                 (0) orthogonal overview
+                 (1) perspective overview
+                 (2) perspective first-person
+   0           Reset view angle
+   ESC         Exit
+
+Time taken:
+===========
+Roughly 5-6 hours
