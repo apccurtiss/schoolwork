@@ -1,38 +1,3 @@
-#define FUSE_USE_VERSION 28
-#define HAVE_SETXATTR
-
-#ifdef HAVE_CONFIG_H
-#include <config.h>
-#endif
-
-#ifdef linux
-/* For pread()/pwrite() */
-#define _XOPEN_SOURCE 500
-#endif
-
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <dirent.h>
-#include <errno.h>
-#include <sys/time.h>
-#ifdef HAVE_SETXATTR
-#include <sys/xattr.h>
-#endif
-
-#include <openssl/evp.h>
-#include <openssl/aes.h>
-
-#define BLOCKSIZE 1024
-#define FAILURE 0
-#define SUCCESS 1
-#define WRITE 0
-#define READ 1
-
-#define private_data ((struct inputs*)fuse_get_context()->private_data)
-#define MAX_FILEPATH_LENGTH 1024
 
 #include "aes-crypt.h"
 

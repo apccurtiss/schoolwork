@@ -23,17 +23,11 @@ OPENSSL_EXAMPLES = aes-crypt-util
 
 .PHONY: all fuse-examples xattr-examples openssl-examples clean
 
-all: pa5-encfs
-#fuse-examples xattr-examples openssl-examples
+all: openssl-examples
 
 fuse-examples: $(FUSE_EXAMPLES)
 xattr-examples: $(XATTR_EXAMPLES)
 openssl-examples: $(OPENSSL_EXAMPLES)
-
-testcrypt: testcrypt.o
-	$(CC) $(LFLAGS) $^ -o $@ $(LIBSOPENSSL) 
-testcrypt.o: testcrypt.c
-	$(CC) $(CFLAGS) $<
 
 pa5-encfs: pa5-encfs.o
 	$(CC) $(LFLAGS) $^ -o $@ $(LLIBSFUSE) $(LLIBSOPENSSL)

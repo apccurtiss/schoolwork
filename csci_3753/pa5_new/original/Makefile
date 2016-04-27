@@ -23,23 +23,15 @@ OPENSSL_EXAMPLES = aes-crypt-util
 
 .PHONY: all fuse-examples xattr-examples openssl-examples clean
 
-all: pa5-encfs
+all: pa5_encfs
 #fuse-examples xattr-examples openssl-examples
 
 fuse-examples: $(FUSE_EXAMPLES)
 xattr-examples: $(XATTR_EXAMPLES)
 openssl-examples: $(OPENSSL_EXAMPLES)
 
-testcrypt: testcrypt.o
-	$(CC) $(LFLAGS) $^ -o $@ $(LIBSOPENSSL) 
-testcrypt.o: testcrypt.c
-	$(CC) $(CFLAGS) $<
-
-pa5-encfs: pa5-encfs.o
-	$(CC) $(LFLAGS) $^ -o $@ $(LLIBSFUSE) $(LLIBSOPENSSL)
-
-pa5-encfs.o: pa5-encfs.c
-	$(CC) $(CFLAGS) $(CFLAGSFUSE) $<
+pa5_encfs: pa5_encfs.o
+	$(CC) $(LFLAGS) $^ -o $@ $(LLIBSFUSE)
 
 fusehello: fusehello.o
 	$(CC) $(LFLAGS) $^ -o $@ $(LLIBSFUSE)
@@ -52,6 +44,12 @@ xattr-util: xattr-util.o
 
 aes-crypt-util: aes-crypt-util.o aes-crypt.o
 	$(CC) $(LFLAGS) $^ -o $@ $(LLIBSOPENSSL)
+
+pa5_encfs.o: pa5_encfs.c
+	$(CC) $(CFLAGS) $(CFLAGSFUSE) $< 
+
+testcrypt.o: testcrypt.c
+	$(CC) $(CFLAGS) $<
 
 fusehello.o: fusehello.c
 	$(CC) $(CFLAGS) $(CFLAGSFUSE) $<

@@ -1,38 +1,19 @@
-#define FUSE_USE_VERSION 28
-#define HAVE_SETXATTR
-
-#ifdef HAVE_CONFIG_H
-#include <config.h>
-#endif
-
-#ifdef linux
-/* For pread()/pwrite() */
-#define _XOPEN_SOURCE 500
-#endif
-
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <dirent.h>
-#include <errno.h>
-#include <sys/time.h>
-#ifdef HAVE_SETXATTR
-#include <sys/xattr.h>
-#endif
-
-#include <openssl/evp.h>
-#include <openssl/aes.h>
-
-#define BLOCKSIZE 1024
-#define FAILURE 0
-#define SUCCESS 1
-#define WRITE 0
-#define READ 1
-
-#define private_data ((struct inputs*)fuse_get_context()->private_data)
-#define MAX_FILEPATH_LENGTH 1024
+/* aes-crypt.c
+ * High level function interface for performing AES encryption on FILE pointers
+ * Uses OpenSSL libcrypto EVP API
+ *
+ * By Andy Sayler (www.andysayler.com)
+ * Created  04/17/12
+ * Modified 04/18/12
+ *
+ * Derived from OpenSSL.org EVP_Encrypt_* Manpage Examples
+ * http://www.openssl.org/docs/crypto/EVP_EncryptInit.html#EXAMPLES
+ *
+ * With additional information from Saju Pillai's OpenSSL AES Example
+ * http://saju.net.in/blog/?p=36
+ * http://saju.net.in/code/misc/openssl_aes.c.txt
+ *
+ */
 
 #include "aes-crypt.h"
 

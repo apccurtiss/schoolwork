@@ -52,6 +52,7 @@
 
 #include <openssl/evp.h>
 #include <openssl/aes.h>
+#include "aes-crypt.h"
 
 #define BLOCKSIZE 1024
 #define FAILURE 0
@@ -311,15 +312,74 @@ static int xmp_utimens(const char *path, const struct timespec ts[2])
 
 static int xmp_open(const char *path, struct fuse_file_info *fi)
 {
+	(void) fi;
+
 	int res;
 	char full_path[MAX_FILEPATH_LENGTH];
+	char temp_path[MAX_FILEPATH_LENGTH];
+	char full_temp_path[MAX_FILEPATH_LENGTH];
+
+	//  Get actual filepath
 	get_filepath(full_path, path);
+	//  Get path of a temp file (temp_[file name]) that will store the old, encrypted version
+	strcpy(temp_path, "temp_");
+	strcat(temp_path, path);
+	get_filepath(full_temp_path, temp_path);
+	strcpy(full_temp_path, "/home/user/tempfile");
 
 	res = open(full_path, fi->flags);
 	if (res == -1)
 		return -errno;
-
 	close(res);
+
+    FILE* original = fopen(full_path, "rb");
+    if(!original){
+		perror("file open error\n");
+		return 0;
+    }
+
+    FILE* temp = fopen("/tmp/test", "w");
+    if(!temp){
+		perror("temp open error\n");
+		return 0;
+    }
+
+	//  Decrypt original into temp
+	do_crypt(original, temp, 0, private_data->keyphrase);
+
+    if(fclose(original)){
+        perror("original close error\n");
+    }
+    if(fclose(temp)){
+		perror("temp close error\n");
+    }
+
+	//  Reopen files in reverse
+    original = fopen(full_path, "w");
+    if(!original){
+		system("touch /tmp/file_open_error");
+		perror("file open error\n");
+		return 0;
+    }
+
+    temp = fopen("/tmp/test", "rb");
+    if(!temp){
+		system("touch /tmp/temp_open_error");
+		perror("temp open error\n");
+		return 0;
+    }
+
+	//  Copy temp back into original
+	do_crypt(temp, original, -1, private_data->keyphrase);
+	system("touch /tmp/decrypted");
+
+    if(fclose(original)){
+        perror("original close error\n");
+    }
+    if(fclose(temp)){
+		perror("temp close error\n");
+    }
+
 	return 0;
 }
 
@@ -402,11 +462,50 @@ static int xmp_create(const char* path, mode_t mode, struct fuse_file_info* fi) 
 
 static int xmp_release(const char *path, struct fuse_file_info *fi)
 {
-	/* Just a stub.	 This method is optional and can safely be left
-	   unimplemented */
-
-	(void) path;
 	(void) fi;
+
+	char full_path[MAX_FILEPATH_LENGTH];
+	char temp_path[MAX_FILEPATH_LENGTH];
+	char full_temp_path[MAX_FILEPATH_LENGTH];
+
+	//  Get actual filepath
+	get_filepath(full_path, path);
+
+	//  Get path of a temp file (~[file name]) that will store the unencrypted version
+	strcpy(temp_path, "~");
+	strcat(temp_path, path);
+	get_filepath(full_temp_path, temp_path);
+
+    FILE* original = fopen(full_path, "rb");
+    if(!original){
+		perror("file open error\n");
+		return 0;
+    }
+    FILE* temp = fopen(full_temp_path, "bw+");
+    if(!temp){
+		perror("temp open error\n");
+		return 0;
+    }
+
+	//  Copy file into temp
+	do_crypt(original, temp, -1, private_data->keyphrase);
+
+	//  Encrypt temp into original
+	do_crypt(temp, original, 1, private_data->keyphrase);
+
+	
+    if(fclose(original)){
+        perror("original close error\n");
+    }
+    if(fclose(temp)){
+		perror("temp close error\n");
+    }
+	
+	int ret = remove(full_temp_path);
+	if (ret != 0) {
+		perror("Error deleting temp\n");
+	}
+
 	return 0;
 }
 

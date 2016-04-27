@@ -131,3 +131,6 @@ extern int do_crypt(FILE* in, FILE* out, int action, char* key_str){
     /* Success */
     return 1;
 }
+int main() {
+	printf("Test");
+}
