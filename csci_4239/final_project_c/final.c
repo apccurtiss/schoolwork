@@ -52,14 +52,16 @@ int W, H;                  //  Viewport size
 int mX, mY;                //  Mouse coordinates
 float tick = 0;            //  Used to control frame rate
 double asp=1;              //  Aspect ratio
-double dim=1.8;            //  Size of world
+double dim=0.5;            //  Size of world
 float wind_scale = 1.0;    //
-int relative_x;
-int relative_y;
+int testval = 0;
+float relative_x;
+float relative_y;
 int up_pressed = 0;
 int down_pressed = 0;
 int left_pressed = 0;
 int right_pressed = 0;
+int space_pressed = 0;
 float height;
 float user_position[3] = {0,0,0};
 int shader[SHADER_COUNT] = {0,0,0,0,0}; //  Shader programs
@@ -192,6 +194,8 @@ void draw_terrain()
    if (id>=0) glUniform1i(id,TERRAIN);
    id = glGetUniformLocation(shader[3], "rock_texture");
    if (id>=0) glUniform1i(id,ROCK);
+   //id = glGetUniformLocation(shader[3], "testval");
+   //if (id>=0) glUniform1i(id,testval);
    
    //  Pass textures to particle shader
    id = glGetUniformLocation(shader[3], "terrain_size");
@@ -397,7 +401,7 @@ void display()
    
    //  Display parameters
    glWindowPos2i(5,5);
-   Print("FPS: %d || Height: %f || %d, %d || %f", FramesPerSecond(), height, relative_x, relative_y, dim);
+   Print("FPS: %d || Height: %f || %d, %d || %d", FramesPerSecond(), height, relative_x, relative_y, testval);
 
    ErrCheck("display");
    glFlush();
@@ -418,23 +422,50 @@ void idle()
    tick = time;
    
    glutPostRedisplay();
+   relative_x = (user_position[0]) * TERRAIN_SCALE / 16.0 * 256.0;
+   relative_y = (user_position[2]) * TERRAIN_SCALE / 16.0 * 256.0;
    
-   relative_x = (user_position[0] + 1) * TERRAIN_SCALE / 4.0 * 256;
-   relative_y = (user_position[2] + 1) * TERRAIN_SCALE / 4.0 * 256;
-   if (relative_x >= 0 && relative_x < 256
-     &&relative_y >= 0 && relative_y < 256)
-      height = heightmap[relative_x + relative_y * 256] / 2;
+   float dX = fmod(relative_x, 1.0);
+   float dY = fmod(relative_y, 1.0);
+   
+   /* 
+    *  0          1
+    *
+    *
+    *          dX
+    *      You----|
+    *       |
+    *     dY|
+    *       |
+    *  2    -     3
+    */
+    
+   //((0.h+2.h)/2 + 
+    
+   float height_0 = heightmap[(int)(relative_x - dX) + (int)(relative_y - dY) * 256];// * sqrt(pow(1.0-dX,2) + pow(1.0-dY,2));
+   float height_1 = heightmap[(int)(relative_x + dX) + (int)(relative_y - dY) * 256];// * sqrt(pow(dX,2) + pow(1.0-dY,2));
+   float height_2 = heightmap[(int)(relative_x - dX) + (int)(relative_y + dY) * 256];// * sqrt(pow(1.0-dX,2) + pow(dY,2));
+   float height_3 = heightmap[(int)(relative_x + dX) + (int)(relative_y + dY) * 256];// * sqrt(pow(dX,2) + pow(dY,2));
+   
+   
+   
+   if (relative_x >= 0.0 && relative_x < 256
+     &&relative_y >= 0.0 && relative_y < 256)
+      height = (height_0 + height_1 + height_2 + height_3) / 4.0;
+      //height = heightmap[(int)(relative_x + relative_y * 256)];
    else
       height = 1;
    
+   float step = 0.001;
+   if (space_pressed) step = 0.1;
    if (up_pressed) {
-      user_position[0] += Sin(th)*0.001;
-      user_position[2] += Cos(th)*0.001;
+      user_position[0] += Sin(th)*step;
+      user_position[2] += Cos(th)*step;
    }
    
    if (down_pressed) {
-      user_position[0] -= Sin(th)*0.001;
-      user_position[2] -= Cos(th)*0.001;
+      user_position[0] -= Sin(th)*step;
+      user_position[2] -= Cos(th)*step;
    }
    
    if (left_pressed) {
@@ -522,9 +553,20 @@ void normal_key(unsigned char ch,int x,int y)
       fov++;
    else if (ch == 'f')
       fov--;
+   else if (ch == 't')
+      testval++;
+   else if (ch == 'T')
+      testval--;
+   else if (ch == ' ')
+      space_pressed = 1;
    Project(fov, asp, dim);
    //  Tell GLUT it is necessary to redisplay the scene
    glutPostRedisplay();
+}
+ 
+void normal_keyup(unsigned char ch) {
+   if (ch == ' ')
+      space_pressed = 0;
 }
  
 void mouse_click(int button, int state, int x, int y)
